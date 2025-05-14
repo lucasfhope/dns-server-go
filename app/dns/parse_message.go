@@ -8,29 +8,29 @@ import (
 )
 
 func ParseDNSMessage(packet []byte) (DNSMessage, error) {
-	header, packet, err := parseDNSHeader(packet)
+	header, position, err := parseDNSHeader(packet)
 	if err != nil {
 		return DNSMessage{}, err
 	}
 
 	var questions []DNSQuestion
 	for i := 0; i < int(header.QDCount); i++ {
-		question, remainingPacket, err := parseDNSQuestion(packet)
+		question, newPosition, err := parseDNSQuestion(packet, position)
 		if err != nil {
 			return DNSMessage{}, err
 		}
 		questions = append(questions, question)
-		packet = remainingPacket
+		position = newPosition
 	}
 
 	var answers []DNSAnswer
 	for i := 0; i < int(header.ANCount); i++ {
-		answer, remainingPacket, err := parseDNSAnswer(packet)
+		answer, newPosition, err := parseDNSAnswer(packet, position)
 		if err != nil {
 			return DNSMessage{}, err
 		}
 		answers = append(answers, answer)
-		packet = remainingPacket
+		position = newPosition
 	}
 
 	message := DNSMessage{
@@ -41,85 +41,82 @@ func ParseDNSMessage(packet []byte) (DNSMessage, error) {
 	return message, nil
 }
 
-func parseDNSHeader(packet []byte) (DNSHeader, []byte, error) {
+func parseDNSHeader(packet []byte) (DNSHeader, int, error) {
 	var header DNSHeader
 	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &header); err != nil {
-		return DNSHeader{}, packet, fmt.Errorf("[Parse Header Error] %w", err)
+		return DNSHeader{}, 0, fmt.Errorf("[Parse Header Error] %w", err)
 	}
-	return header, packet[12:], nil
+	return header, 12, nil
 }
 
-func parseDNSQuestion(packet []byte) (DNSQuestion, []byte, error) {
+func parseDNSQuestion(packet []byte, position int) (DNSQuestion, int, error) {
 	var question DNSQuestion
-	qname, n, err := parseQNAME(packet)
+	qname, position, err := parseQNAME(packet, position)
 	if err != nil {
-		return DNSQuestion{}, packet, fmt.Errorf("[Parse Question Error] %w", err)
+		return DNSQuestion{}, 0, fmt.Errorf("[Parse Question Error] %w", err)
 	}
-	packet = packet[n:]
 
-	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &question.QTYPE); err != nil {
-		return DNSQuestion{}, packet, fmt.Errorf("[Parse Question Error] %w", err)
+	if err := binary.Read(bytes.NewReader(packet[position:]), binary.BigEndian, &question.QTYPE); err != nil {
+		return DNSQuestion{}, 0, fmt.Errorf("[Parse Question Error] %w", err)
 	}
-	packet = packet[2:]
+	position += 2
 
-	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &question.QCLASS); err != nil {
-		return DNSQuestion{}, packet, fmt.Errorf("[Parse Question Error] %w", err)
+	if err := binary.Read(bytes.NewReader(packet[position:]), binary.BigEndian, &question.QCLASS); err != nil {
+		return DNSQuestion{}, 0, fmt.Errorf("[Parse Question Error] %w", err)
 	}
-	packet = packet[2:]
+	position += 2
 
 	question.QNAME = qname
-	return question, packet, nil
+	return question, position, nil
 }
 
-func parseDNSAnswer(packet []byte) (DNSAnswer, []byte, error) {
+func parseDNSAnswer(packet []byte, position int) (DNSAnswer, int, error) {
 	var answer DNSAnswer
-	qname, n, err := parseQNAME(packet)
+	qname, position, err := parseQNAME(packet, position)
 	if err != nil {
-		return DNSAnswer{}, packet, fmt.Errorf("[Parse Answer Error] %w", err)
+		return DNSAnswer{}, 0, fmt.Errorf("[Parse Answer Error] %w", err)
 	}
-	packet = packet[n:]
 
-	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &answer.ATYPE); err != nil {
-		return DNSAnswer{}, packet, fmt.Errorf("[Parse Answer Error] %w", err)
+	if err := binary.Read(bytes.NewReader(packet[position:]), binary.BigEndian, &answer.ATYPE); err != nil {
+		return DNSAnswer{}, 0, fmt.Errorf("[Parse Answer Error] %w", err)
 	}
-	packet = packet[2:]
+	position += 2
 
-	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &answer.ACLASS); err != nil {
-		return DNSAnswer{}, packet, fmt.Errorf("[Parse Answer Error] %w", err)
+	if err := binary.Read(bytes.NewReader(packet[position:]), binary.BigEndian, &answer.ACLASS); err != nil {
+		return DNSAnswer{}, 0, fmt.Errorf("[Parse Answer Error] %w", err)
 	}
-	packet = packet[2:]
+	position += 2
 
-	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &answer.TTL); err != nil {
-		return DNSAnswer{}, packet, fmt.Errorf("[Parse Answer Error] %w", err)
+	if err := binary.Read(bytes.NewReader(packet[position:]), binary.BigEndian, &answer.TTL); err != nil {
+		return DNSAnswer{}, 0, fmt.Errorf("[Parse Answer Error] %w", err)
 	}
-	packet = packet[4:]
+	position += 4
 
-	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &answer.RDLENGTH); err != nil {
-		return DNSAnswer{}, packet, fmt.Errorf("[Parse Answer Error] %w", err)
+	if err := binary.Read(bytes.NewReader(packet[position:]), binary.BigEndian, &answer.RDLENGTH); err != nil {
+		return DNSAnswer{}, 0, fmt.Errorf("[Parse Answer Error] %w", err)
 	}
-	packet = packet[2:]
+	position += 2
 
 	answer.ANAME = qname
-	answer.RDATA = binary.BigEndian.Uint32(packet[:4])
-	packet = packet[4:]
+	answer.RDATA = binary.BigEndian.Uint32(packet[position:position+int(answer.RDLENGTH)])
+	position += int(answer.RDLENGTH)
 
-	return answer, packet, nil
+	return answer, position, nil
 }
 
-func parseQNAME(packet []byte) (string, int, error) {
+func parseQNAME(packet []byte, position int) (string, int, error) {
 	var labels []string
-	var n int
 	for {
-		length := int(packet[n])
-		n++
+		length := int(packet[position])
+		position++
 		if length == 0 {
 			break
 		}
-		if n+length > len(packet) {
+		if position+length > len(packet) {
 			return "", 0, fmt.Errorf("QNAME label length exceeds packet size")
 		}
-		labels = append(labels, string(packet[n:n+length]))
-		n += int(length)
+		labels = append(labels, string(packet[position:position+length]))
+		position += int(length)
 	}
-	return strings.Join(labels, "."), n, nil
+	return strings.Join(labels, "."), position, nil
 }
