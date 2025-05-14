@@ -33,14 +33,11 @@ func BuildDNSResponse(message DNSMessage) []byte {
 	}
 	binary.Write(response, binary.BigEndian, header)
 
+	offsets := make(map[string]uint)
+
 	// QUESTIONS
 	for _, question := range message.Questions {
-		labels := strings.Split(question.QNAME, ".")
-		for _, label := range labels {
-			response.WriteByte(byte(len(label)))
-			response.WriteString(label)
-		}
-		response.WriteByte(0)
+		writeQname(response, question.QNAME, offsets)
 
 		binary.Write(response, binary.BigEndian, question.QTYPE)
 		binary.Write(response, binary.BigEndian, question.QCLASS)
@@ -48,12 +45,7 @@ func BuildDNSResponse(message DNSMessage) []byte {
 
 	// ANSWERS
 	for _, question := range message.Questions {
-		labels := strings.Split(question.QNAME, ".")
-		for _, label := range labels {
-			response.WriteByte(byte(len(label)))
-			response.WriteString(label)
-		}
-		response.WriteByte(0)
+		writeQname(response, question.QNAME, offsets)
 
 		binary.Write(response, binary.BigEndian, question.QTYPE)
 		binary.Write(response, binary.BigEndian, question.QCLASS)
@@ -64,4 +56,24 @@ func BuildDNSResponse(message DNSMessage) []byte {
 	}
 
 	return response.Bytes()
+}
+
+func writeQname(w *bytes.Buffer, name string, offsets map[string]uint) {
+	labels := strings.Split(name, ".")
+	for i, label := range labels {
+		// Write a pointer to any existing name
+		remainingName := strings.Join(labels[i:], ".")
+		if offset, exists := offsets[remainingName]; exists {
+			pointer := 0xC000 | offset
+			binary.Write(w, binary.BigEndian, uint16(pointer))
+			return
+		}
+		if i == 0 {
+			offsets[name] = uint(w.Len())
+		}
+		offsets[remainingName] = uint(w.Len())
+		w.WriteByte(byte(len(label)))
+		w.WriteString(label)
+	}
+	w.WriteByte(0)
 }

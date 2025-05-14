@@ -29,31 +29,7 @@ func TestDNSServerResponse(t *testing.T) {
 	testBasicQuery(t, conn)
 	testQueryWithUnimplementedOpcode(t, conn)
 	testCanParseCompressedQName(t, conn)
-
-}
-
-func sendMessageAndParseResponse(t *testing.T, conn *net.UDPConn, message []byte) dns.DNSMessage {
-	// Send the message to the server
-	_, err := conn.Write(message)
-	if err != nil {
-		t.Fatalf("Failed to send message: %v", err)
-	}
-
-	// Read and parse the response
-	packet := make([]byte, 512)
-	n, _, err := conn.ReadFromUDP(packet)
-	if err != nil {
-		t.Fatalf("Failed to read response: %v", err)
-	}
-	if n == 0 {
-		t.Fatalf("No response received from server")
-	}
-	response, err := dns.ParseDNSMessage(packet[:n])
-	if err != nil {
-		t.Fatalf("Failed to parse DNS response: %v", err)
-	}
-
-	return response
+	testRespondsWithCorrectPointers(t, conn)
 }
 
 func testBasicQuery(t *testing.T, conn *net.UDPConn) {
@@ -70,7 +46,7 @@ func testBasicQuery(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Class: IN
 	}
 	
-	response := sendMessageAndParseResponse(t, conn, query)
+	response, _ := sendMessageAndParseResponse(t, conn, query)
 
 	// Check the response header
 	if response.Header.ID != 0x1234 { // Mimic Transaction ID
@@ -146,7 +122,7 @@ func testQueryWithUnimplementedOpcode(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Class: IN
 	}
 	
-	response := sendMessageAndParseResponse(t, conn, query)
+	response, _ := sendMessageAndParseResponse(t, conn, query)
 
 	// only check mimicked ID and flags and error code in RDATA
 	if response.Header.ID != 0xabef { // Mimic different Transaction ID
@@ -175,7 +151,7 @@ func testCanParseCompressedQName(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Class: IN
 	}
 
-	response := sendMessageAndParseResponse(t, conn, query)
+	response, _ := sendMessageAndParseResponse(t, conn, query)
 
 	// Check the question section
 	if len(response.Questions) != 2 {
@@ -219,4 +195,123 @@ func testCanParseCompressedQName(t *testing.T, conn *net.UDPConn) {
 			t.Errorf("RDATA mismatch: got %x, expected 7f000001", answer.RDATA)
 		}
 	}
+}
+
+func testRespondsWithCorrectPointers(t *testing.T, conn *net.UDPConn) {
+	query := []byte{
+        0x12, 0x34, // Transaction ID
+        0x01, 0x00, // Flags: [QR=0, OPCODE=0000, AA=0, TC=0, RD=1], [RA=0, Z=000, RCODE=0000]
+        0x00, 0x02, // Questions: 2
+        0x00, 0x00, // Answer RRs: 0
+        0x00, 0x00, // Authority RRs: 0
+        0x00, 0x00, // Additional RRs: 0
+
+        // QNAME: example.site.com
+        0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
+        0x04, 0x73, 0x69, 0x74, 0x65,                   // "site"
+        0x03, 0x63, 0x6f, 0x6d, 0x00,                   // "com"
+        0x00, 0x01, // Type: A
+        0x00, 0x01, // Class: IN
+
+        // QNAME: site.com (using compression, pointer to "site.com")
+        0xc0, 0x14, // Pointer to "site.com" (offset 12)
+        0x00, 0x01, // Type: A
+        0x00, 0x01, // Class: IN
+    }
+
+	response, packet := sendMessageAndParseResponse(t, conn, query)
+
+	// Check the question section
+    if len(response.Questions) != 2 {
+        t.Errorf("Expected 2 questions, got %d", len(response.Questions))
+    }
+    if response.Questions[0].QNAME != "example.site.com" {
+        t.Errorf("QNAME mismatch: got %s, expected example.site.com", response.Questions[0].QNAME)
+    }
+    if response.Questions[1].QNAME != "site.com" {
+        t.Errorf("QNAME mismatch: got %s, expected site.com", response.Questions[1].QNAME)
+    }
+
+	// Check the answer section
+	if len(response.Answers) != 2 {
+		t.Errorf("Expected 2 answers, got %d", len(response.Answers))
+	}
+    if response.Answers[0].ANAME != "example.site.com" {
+        t.Errorf("QNAME mismatch: got %s, expected example.site.com", response.Answers[0].ANAME)
+    }
+    if response.Answers[1].ANAME != "site.com" {
+        t.Errorf("QNAME mismatch: got %s, expected site.com", response.Answers[1].ANAME)
+    }
+
+	expectedResponseBody := []byte{
+		// Question 1: example.site.com
+		0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
+		0x04, 0x73, 0x69, 0x74, 0x65,                   // "site"
+		0x03, 0x63, 0x6f, 0x6d, 0x00,                   // "com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+
+		// Question 2: site.com (pointer)
+		0xc0, 0x14, // Pointer to "site.com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+
+		// Answer 1: example.site.com
+		0xc0, 0x0c, // Pointer to "example.site.com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+		0x00, 0x01, 0x07, 0xd7, // TTL: 67543 (0x00010877)
+		0x00, 0x04,             // RDLENGTH: 4
+		0x09, 0x08, 0x11, 0x03, // RDATA: 9.8.17.3
+
+		// Answer 2: site.com (pointer)
+		0xc0, 0x14, // Pointer to "site.com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+		0x00, 0x01, 0x07, 0xd7, // TTL: 67543 (0x00010877)
+		0x00, 0x04,             // RDLENGTH: 4
+		0x09, 0x08, 0x11, 0x03, // RDATA: 9.8.17.3
+	}
+
+	compareBytes(t, packet[12:], expectedResponseBody)
+}
+
+///////////////////////
+// Helper functions ///
+///////////////////////
+
+func sendMessageAndParseResponse(t *testing.T, conn *net.UDPConn, message []byte) (dns.DNSMessage, []byte) {
+	// Send the message to the server
+	_, err := conn.Write(message)
+	if err != nil {
+		t.Fatalf("Failed to send message: %v", err)
+	}
+
+	// Read and parse the response
+	packet := make([]byte, 512)
+	n, _, err := conn.ReadFromUDP(packet)
+	if err != nil {
+		t.Fatalf("Failed to read response: %v", err)
+	}
+	if n == 0 {
+		t.Fatalf("No response received from server")
+	}
+	response, err := dns.ParseDNSMessage(packet[:n])
+	if err != nil {
+		t.Fatalf("Failed to parse DNS response: %v", err)
+	}
+
+	return response, packet[:n]
+}
+
+func compareBytes(t *testing.T, actual []byte, expected []byte) {
+    if len(actual) != len(expected) {
+        t.Errorf("Response length mismatch: got %d bytes, expected %d bytes", len(actual), len(expected))
+    }
+
+    for i := 0; i < len(expected) && i < len(actual); i++ {
+        if actual[i] != expected[i] {
+            t.Errorf("Byte mismatch at position %d: got 0x%02x, expected 0x%02x", i, actual[i], expected[i])
+        }
+    }
 }

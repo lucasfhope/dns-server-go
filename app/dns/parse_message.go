@@ -120,6 +120,7 @@ func parseQNAME(packet []byte, position uint, visitedOffsets map[uint]bool) (str
 			position++
 
 			// Prevent infinite loop
+			fmt.Println(offset)
 			if visitedOffsets[offset] {
 				return "", 0, fmt.Errorf("circular pointer reference detected")
 			}
