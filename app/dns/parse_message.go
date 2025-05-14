@@ -41,7 +41,7 @@ func ParseDNSMessage(packet []byte) (DNSMessage, error) {
 	return message, nil
 }
 
-func parseDNSHeader(packet []byte) (DNSHeader, int, error) {
+func parseDNSHeader(packet []byte) (DNSHeader, uint, error) {
 	var header DNSHeader
 	if err := binary.Read(bytes.NewReader(packet), binary.BigEndian, &header); err != nil {
 		return DNSHeader{}, 0, fmt.Errorf("[Parse Header Error] %w", err)
@@ -49,7 +49,7 @@ func parseDNSHeader(packet []byte) (DNSHeader, int, error) {
 	return header, 12, nil
 }
 
-func parseDNSQuestion(packet []byte, position int) (DNSQuestion, int, error) {
+func parseDNSQuestion(packet []byte, position uint) (DNSQuestion, uint, error) {
 	var question DNSQuestion
 	qname, position, err := parseQNAME(packet, position, nil)
 	if err != nil {
@@ -70,7 +70,7 @@ func parseDNSQuestion(packet []byte, position int) (DNSQuestion, int, error) {
 	return question, position, nil
 }
 
-func parseDNSAnswer(packet []byte, position int) (DNSAnswer, int, error) {
+func parseDNSAnswer(packet []byte, position uint) (DNSAnswer, uint, error) {
 	var answer DNSAnswer
 	qname, position, err := parseQNAME(packet, position, nil)
 	if err != nil {
@@ -98,25 +98,25 @@ func parseDNSAnswer(packet []byte, position int) (DNSAnswer, int, error) {
 	position += 2
 
 	answer.ANAME = qname
-	answer.RDATA = binary.BigEndian.Uint32(packet[position : position+int(answer.RDLENGTH)])
-	position += int(answer.RDLENGTH)
+	answer.RDATA = binary.BigEndian.Uint32(packet[position : position+uint(answer.RDLENGTH)])
+	position += uint(answer.RDLENGTH)
 
 	return answer, position, nil
 }
 
-func parseQNAME(packet []byte, position int, visitedOffsets map[int]bool) (string, int, error) {
+func parseQNAME(packet []byte, position uint, visitedOffsets map[uint]bool) (string, uint, error) {
 	if visitedOffsets == nil {
-		visitedOffsets = make(map[int]bool)
+		visitedOffsets = make(map[uint]bool)
 	}
 
 	var labels []string
 	for {
-		length := int(packet[position])
+		length := uint(packet[position])
 		position++
 
 		// POINTER
 		if length&0xC0 == 0xC0 {
-			offset := ((length & 0x3F) << 8) | int(packet[position])
+			offset := ((length & 0x3F) << 8) | uint(packet[position])
 			position++
 
 			// Prevent infinite loop
@@ -136,11 +136,11 @@ func parseQNAME(packet []byte, position int, visitedOffsets map[int]bool) (strin
 		if length == 0 {
 			break
 		}
-		if position+length > len(packet) {
+		if position+length > uint(len(packet)) {
 			return "", 0, fmt.Errorf("QNAME label length exceeds packet size")
 		}
 		labels = append(labels, string(packet[position:position+length]))
-		position += int(length)
+		position += uint(length)
 	}
 	return strings.Join(labels, "."), position, nil
 }
