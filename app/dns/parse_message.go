@@ -51,7 +51,7 @@ func parseDNSHeader(packet []byte) (DNSHeader, int, error) {
 
 func parseDNSQuestion(packet []byte, position int) (DNSQuestion, int, error) {
 	var question DNSQuestion
-	qname, position, err := parseQNAME(packet, position)
+	qname, position, err := parseQNAME(packet, position, nil)
 	if err != nil {
 		return DNSQuestion{}, 0, fmt.Errorf("[Parse Question Error] %w", err)
 	}
@@ -72,7 +72,7 @@ func parseDNSQuestion(packet []byte, position int) (DNSQuestion, int, error) {
 
 func parseDNSAnswer(packet []byte, position int) (DNSAnswer, int, error) {
 	var answer DNSAnswer
-	qname, position, err := parseQNAME(packet, position)
+	qname, position, err := parseQNAME(packet, position, nil)
 	if err != nil {
 		return DNSAnswer{}, 0, fmt.Errorf("[Parse Answer Error] %w", err)
 	}
@@ -98,17 +98,41 @@ func parseDNSAnswer(packet []byte, position int) (DNSAnswer, int, error) {
 	position += 2
 
 	answer.ANAME = qname
-	answer.RDATA = binary.BigEndian.Uint32(packet[position:position+int(answer.RDLENGTH)])
+	answer.RDATA = binary.BigEndian.Uint32(packet[position : position+int(answer.RDLENGTH)])
 	position += int(answer.RDLENGTH)
 
 	return answer, position, nil
 }
 
-func parseQNAME(packet []byte, position int) (string, int, error) {
+func parseQNAME(packet []byte, position int, visitedOffsets map[int]bool) (string, int, error) {
+	if visitedOffsets == nil {
+		visitedOffsets = make(map[int]bool)
+	}
+
 	var labels []string
 	for {
 		length := int(packet[position])
 		position++
+
+		// POINTER
+		if length&0xC0 == 0xC0 {
+			offset := ((length & 0x3F) << 8) | int(packet[position])
+			position++
+
+			// Prevent infinite loop
+			if visitedOffsets[offset] {
+				return "", 0, fmt.Errorf("circular pointer reference detected")
+			}
+			visitedOffsets[offset] = true
+
+			referencedName, _, err := parseQNAME(packet, offset, visitedOffsets)
+			if err != nil {
+				return "", 0, err
+			}
+			labels = append(labels, referencedName)
+			break
+		}
+
 		if length == 0 {
 			break
 		}

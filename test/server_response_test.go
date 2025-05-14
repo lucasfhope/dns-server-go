@@ -28,25 +28,15 @@ func TestDNSServerResponse(t *testing.T) {
 
 	testBasicQuery(t, conn)
 	testQueryWithUnimplementedOpcode(t, conn)
+	testCanParseCompressedQName(t, conn)
 
 }
 
-func testBasicQuery(t *testing.T, conn *net.UDPConn) {
-	query := []byte{
-		0x12, 0x34, // Transaction ID
-		0x01, 0x00, // Flags: [QR=0, OPCODE=0000, AA=0, TC=0, RD=1], [RA=0, Z=000, RCODE=0000]
-		0x00, 0x01, // Questions: 1
-		0x00, 0x00, // Answer RRs: 0
-		0x00, 0x00, // Authority RRs: 0
-		0x00, 0x00, // Additional RRs: 0
-		0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
-		0x03, 0x63, 0x6f, 0x6d, 0x00, // "com"
-		0x00, 0x01, // Type: A
-		0x00, 0x01, // Class: IN
-	}
-	_, err := conn.Write(query)
+func sendMessageAndParseResponse(t *testing.T, conn *net.UDPConn, message []byte) dns.DNSMessage {
+	// Send the message to the server
+	_, err := conn.Write(message)
 	if err != nil {
-		t.Fatalf("Failed to send query: %v", err)
+		t.Fatalf("Failed to send message: %v", err)
 	}
 
 	// Read and parse the response
@@ -62,6 +52,25 @@ func testBasicQuery(t *testing.T, conn *net.UDPConn) {
 	if err != nil {
 		t.Fatalf("Failed to parse DNS response: %v", err)
 	}
+
+	return response
+}
+
+func testBasicQuery(t *testing.T, conn *net.UDPConn) {
+	query := []byte{
+		0x12, 0x34, // Transaction ID
+		0x01, 0x00, // Flags: [QR=0, OPCODE=0000, AA=0, TC=0, RD=1], [RA=0, Z=000, RCODE=0000]
+		0x00, 0x01, // Questions: 1
+		0x00, 0x00, // Answer RRs: 0
+		0x00, 0x00, // Authority RRs: 0
+		0x00, 0x00, // Additional RRs: 0
+		0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
+		0x03, 0x63, 0x6f, 0x6d, 0x00, // "com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+	}
+	
+	response := sendMessageAndParseResponse(t, conn, query)
 
 	// Check the response header
 	if response.Header.ID != 0x1234 { // Mimic Transaction ID
@@ -136,24 +145,8 @@ func testQueryWithUnimplementedOpcode(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Type: A
 		0x00, 0x01, // Class: IN
 	}
-	_, err := conn.Write(query)
-	if err != nil {
-		t.Fatalf("Failed to send query: %v", err)
-	}
-
-	// Read and parse the response
-	packet := make([]byte, 512)
-	n, _, err := conn.ReadFromUDP(packet)
-	if err != nil {
-		t.Fatalf("Failed to read response: %v", err)
-	}
-	if n == 0 {
-		t.Fatalf("No response received from server")
-	}
-	response, err := dns.ParseDNSMessage(packet[:n])
-	if err != nil {
-		t.Fatalf("Failed to parse DNS response: %v", err)
-	}
+	
+	response := sendMessageAndParseResponse(t, conn, query)
 
 	// only check mimicked ID and flags and error code in RDATA
 	if response.Header.ID != 0xabef { // Mimic different Transaction ID
@@ -161,5 +154,69 @@ func testQueryWithUnimplementedOpcode(t *testing.T, conn *net.UDPConn) {
 	}
 	if response.Header.Flags != 0xD804 { // Expected flags (QR=1, mimic OPCODE and RD, RCODE=4 for unimplemented opcode)
 		t.Errorf("Flags mismatch: got %x, expected %x", response.Header.Flags, 0xD804)
+	}
+}
+
+func testCanParseCompressedQName(t *testing.T, conn *net.UDPConn) {
+
+	query := []byte{
+		0x12, 0x34, // Transaction ID
+		0x01, 0x00, // Flags: [QR=0, OPCODE=0000, AA=0, TC=0, RD=1], [RA=0, Z=000, RCODE=0000]
+		0x00, 0x02, // Questions: 2
+		0x00, 0x00, // Answer RRs: 0
+		0x00, 0x00, // Authority RRs: 0
+		0x00, 0x00, // Additional RRs: 0
+		0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
+		0x03, 0x63, 0x6f, 0x6d, 0x00, // "com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+		0xc0, 0x0c, // Pointer to "example.com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+	}
+
+	response := sendMessageAndParseResponse(t, conn, query)
+
+	// Check the question section
+	if len(response.Questions) != 2 {
+		t.Errorf("Expected 2 questions, got %d", len(response.Questions))
+	}
+	for _, question := range response.Questions {
+		if question.QNAME != "example.com" {
+			t.Errorf("QNAME mismatch: got %s, expected example.com", question.QNAME)
+		}
+		if question.QTYPE != 1 { // 1 = A (IPv4 address)
+			t.Errorf("QTYPE mismatch: got %d, expected 1 (A)", question.QTYPE)
+		}
+		if question.QCLASS != 1 { // 1 = IN (Internet)
+			t.Errorf("QCLASS mismatch: got %d, expected 1 (IN)", question.QCLASS)
+		}
+	}
+
+	// Check the answer section
+	if len(response.Answers) != 2 {
+		t.Errorf("Expected 1 answer, got %d", len(response.Answers))
+	}
+	for _, answer := range response.Answers {
+		if answer.ANAME != "example.com" {
+			t.Errorf("ANAME mismatch: got %s, expected example.com", answer.ANAME)
+		}
+		if answer.ATYPE != 1 {
+			t.Errorf("ATYPE mismatch: got %d, expected 1 (A)", answer.ATYPE)
+		}
+		if answer.ACLASS != 1 {
+			t.Errorf("ACLASS mismatch: got %d, expected 1 (IN)", answer.ACLASS)
+		}
+		if answer.TTL != uint32(67543) {
+			t.Errorf("TTL mismatch: got %d, expected 67543", answer.TTL)
+		}
+		if answer.RDLENGTH != 4 { // 4 bytes for IPv4 address
+			t.Errorf("RDLENGTH mismatch: got %d, expected 4", answer.RDLENGTH)
+		}
+		rdataBytes := make([]byte, 4)
+		binary.BigEndian.PutUint32(rdataBytes, answer.RDATA)
+		if net.IP(rdataBytes).String() != "9.8.17.3" {
+			t.Errorf("RDATA mismatch: got %x, expected 7f000001", answer.RDATA)
+		}
 	}
 }
