@@ -98,7 +98,7 @@ func parseDNSAnswer(packet []byte, position uint) (DNSAnswer, uint, error) {
 	position += 2
 
 	answer.ANAME = qname
-	answer.RDATA = binary.BigEndian.Uint32(packet[position : position+uint(answer.RDLENGTH)])
+	answer.RDATA = packet[position : position+uint(answer.RDLENGTH)]
 	position += uint(answer.RDLENGTH)
 
 	return answer, position, nil

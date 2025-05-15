@@ -1,7 +1,6 @@
 package server_response_test
 
 import (
-	"encoding/binary"
 	"net"
 	"testing"
 	"time"
@@ -45,7 +44,7 @@ func testBasicQuery(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Type: A
 		0x00, 0x01, // Class: IN
 	}
-	
+
 	response, _ := sendMessageAndParseResponse(t, conn, query)
 
 	// Check the response header
@@ -101,11 +100,12 @@ func testBasicQuery(t *testing.T, conn *net.UDPConn) {
 	if response.Answers[0].RDLENGTH != 4 { // 4 bytes for IPv4 address
 		t.Errorf("RDLENGTH mismatch: got %d, expected 4", response.Answers[0].RDLENGTH)
 	}
-	rdataBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(rdataBytes, response.Answers[0].RDATA)
-	if net.IP(rdataBytes).String() != "0.0.0.0" {
-		t.Errorf("RDATA mismatch: got %x, expected 7f000001", response.Answers[0].RDATA)
+	for i, b := range response.Answers[0].RDATA { // 0.0.0.0
+		if b != 0x00 {
+			t.Errorf("RDATA mismatch at byte %d: got %x, expected 0x00", i, b)
+		}
 	}
+
 }
 
 func testQueryWithUnimplementedOpcode(t *testing.T, conn *net.UDPConn) {
@@ -121,7 +121,7 @@ func testQueryWithUnimplementedOpcode(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Type: A
 		0x00, 0x01, // Class: IN
 	}
-	
+
 	response, _ := sendMessageAndParseResponse(t, conn, query)
 
 	// only check mimicked ID and flags and error code in RDATA
@@ -189,65 +189,65 @@ func testCanParseCompressedQName(t *testing.T, conn *net.UDPConn) {
 		if answer.RDLENGTH != 4 { // 4 bytes for IPv4 address
 			t.Errorf("RDLENGTH mismatch: got %d, expected 4", answer.RDLENGTH)
 		}
-		rdataBytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(rdataBytes, answer.RDATA)
-		if net.IP(rdataBytes).String() != "0.0.0.0" {
-			t.Errorf("RDATA mismatch: got %x, expected 7f000001", answer.RDATA)
+		for i, b := range response.Answers[0].RDATA { // 0.0.0.0
+			if b != 0x00 {
+				t.Errorf("RDATA mismatch at byte %d: got %x, expected 0x00", i, b)
+			}
 		}
 	}
 }
 
 func testRespondsWithCorrectPointers(t *testing.T, conn *net.UDPConn) {
 	query := []byte{
-        0x12, 0x34, // Transaction ID
-        0x01, 0x00, // Flags: [QR=0, OPCODE=0000, AA=0, TC=0, RD=1], [RA=0, Z=000, RCODE=0000]
-        0x00, 0x02, // Questions: 2
-        0x00, 0x00, // Answer RRs: 0
-        0x00, 0x00, // Authority RRs: 0
-        0x00, 0x00, // Additional RRs: 0
+		0x12, 0x34, // Transaction ID
+		0x01, 0x00, // Flags: [QR=0, OPCODE=0000, AA=0, TC=0, RD=1], [RA=0, Z=000, RCODE=0000]
+		0x00, 0x02, // Questions: 2
+		0x00, 0x00, // Answer RRs: 0
+		0x00, 0x00, // Authority RRs: 0
+		0x00, 0x00, // Additional RRs: 0
 
-        // QNAME: example.site.com
-        0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
-        0x04, 0x73, 0x69, 0x74, 0x65,                   // "site"
-        0x03, 0x63, 0x6f, 0x6d, 0x00,                   // "com"
-        0x00, 0x01, // Type: A
-        0x00, 0x01, // Class: IN
+		// QNAME: example.site.com
+		0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
+		0x04, 0x73, 0x69, 0x74, 0x65, // "site"
+		0x03, 0x63, 0x6f, 0x6d, 0x00, // "com"
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
 
-        // QNAME: site.com (using compression, pointer to "site.com")
-        0xc0, 0x14, // Pointer to "site.com" (offset 12)
-        0x00, 0x01, // Type: A
-        0x00, 0x01, // Class: IN
-    }
+		// QNAME: site.com (using compression, pointer to "site.com")
+		0xc0, 0x14, // Pointer to "site.com" (offset 12)
+		0x00, 0x01, // Type: A
+		0x00, 0x01, // Class: IN
+	}
 
 	response, packet := sendMessageAndParseResponse(t, conn, query)
 
 	// Check the question section
-    if len(response.Questions) != 2 {
-        t.Errorf("Expected 2 questions, got %d", len(response.Questions))
-    }
-    if response.Questions[0].QNAME != "example.site.com" {
-        t.Errorf("QNAME mismatch: got %s, expected example.site.com", response.Questions[0].QNAME)
-    }
-    if response.Questions[1].QNAME != "site.com" {
-        t.Errorf("QNAME mismatch: got %s, expected site.com", response.Questions[1].QNAME)
-    }
+	if len(response.Questions) != 2 {
+		t.Errorf("Expected 2 questions, got %d", len(response.Questions))
+	}
+	if response.Questions[0].QNAME != "example.site.com" {
+		t.Errorf("QNAME mismatch: got %s, expected example.site.com", response.Questions[0].QNAME)
+	}
+	if response.Questions[1].QNAME != "site.com" {
+		t.Errorf("QNAME mismatch: got %s, expected site.com", response.Questions[1].QNAME)
+	}
 
 	// Check the answer section
 	if len(response.Answers) != 2 {
 		t.Errorf("Expected 2 answers, got %d", len(response.Answers))
 	}
-    if response.Answers[0].ANAME != "example.site.com" {
-        t.Errorf("QNAME mismatch: got %s, expected example.site.com", response.Answers[0].ANAME)
-    }
-    if response.Answers[1].ANAME != "site.com" {
-        t.Errorf("QNAME mismatch: got %s, expected site.com", response.Answers[1].ANAME)
-    }
+	if response.Answers[0].ANAME != "example.site.com" {
+		t.Errorf("QNAME mismatch: got %s, expected example.site.com", response.Answers[0].ANAME)
+	}
+	if response.Answers[1].ANAME != "site.com" {
+		t.Errorf("QNAME mismatch: got %s, expected site.com", response.Answers[1].ANAME)
+	}
 
 	expectedResponseBody := []byte{
 		// Question 1: example.site.com
 		0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // "example"
-		0x04, 0x73, 0x69, 0x74, 0x65,                   // "site"
-		0x03, 0x63, 0x6f, 0x6d, 0x00,                   // "com"
+		0x04, 0x73, 0x69, 0x74, 0x65, // "site"
+		0x03, 0x63, 0x6f, 0x6d, 0x00, // "com"
 		0x00, 0x01, // Type: A
 		0x00, 0x01, // Class: IN
 
@@ -261,7 +261,7 @@ func testRespondsWithCorrectPointers(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Type: A
 		0x00, 0x01, // Class: IN
 		0x00, 0x01, 0x07, 0xd7, // TTL: 67543 (0x00010877)
-		0x00, 0x04,             // RDLENGTH: 4
+		0x00, 0x04, // RDLENGTH: 4
 		0x00, 0x00, 0x00, 0x00, // RDATA: 0.0.0.0
 
 		// Answer 2: site.com (pointer)
@@ -269,13 +269,12 @@ func testRespondsWithCorrectPointers(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Type: A
 		0x00, 0x01, // Class: IN
 		0x00, 0x01, 0x07, 0xd7, // TTL: 67543 (0x00010877)
-		0x00, 0x04,             // RDLENGTH: 4
+		0x00, 0x04, // RDLENGTH: 4
 		0x00, 0x00, 0x00, 0x00, // RDATA: 0.0.0.0
 	}
 
 	compareBytes(t, packet[12:], expectedResponseBody)
 }
-
 
 ///////////////////////
 // Helper functions ///
@@ -306,13 +305,13 @@ func sendMessageAndParseResponse(t *testing.T, conn *net.UDPConn, message []byte
 }
 
 func compareBytes(t *testing.T, actual []byte, expected []byte) {
-    if len(actual) != len(expected) {
-        t.Errorf("Response length mismatch: got %d bytes, expected %d bytes", len(actual), len(expected))
-    }
+	if len(actual) != len(expected) {
+		t.Errorf("Response length mismatch: got %d bytes, expected %d bytes", len(actual), len(expected))
+	}
 
-    for i := 0; i < len(expected) && i < len(actual); i++ {
-        if actual[i] != expected[i] {
-            t.Errorf("Byte mismatch at position %d: got 0x%02x, expected 0x%02x", i, actual[i], expected[i])
-        }
-    }
+	for i := 0; i < len(expected) && i < len(actual); i++ {
+		if actual[i] != expected[i] {
+			t.Errorf("Byte mismatch at position %d: got 0x%02x, expected 0x%02x", i, actual[i], expected[i])
+		}
+	}
 }

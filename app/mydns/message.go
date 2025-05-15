@@ -43,5 +43,5 @@ type DNSAnswer struct {
 	ACLASS   uint16 // Class of answer
 	TTL      uint32 // Time to Live
 	RDLENGTH uint16 // Length of the resource data
-	RDATA    uint32 // Resource data
+	RDATA    []byte // Resource data
 }
