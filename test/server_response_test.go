@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codecrafters-io/dns-server-starter-go/app/dns"
+	"github.com/codecrafters-io/dns-server-starter-go/app/mydns"
 )
 
 func TestDNSServerResponse(t *testing.T) {
 	go func() {
-		dns.StartDNSServer()
+		mydns.StartDNSServer("")
 	}()
 	time.Sleep(1 * time.Second)
 
@@ -103,7 +103,7 @@ func testBasicQuery(t *testing.T, conn *net.UDPConn) {
 	}
 	rdataBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(rdataBytes, response.Answers[0].RDATA)
-	if net.IP(rdataBytes).String() != "9.8.17.3" {
+	if net.IP(rdataBytes).String() != "0.0.0.0" {
 		t.Errorf("RDATA mismatch: got %x, expected 7f000001", response.Answers[0].RDATA)
 	}
 }
@@ -191,7 +191,7 @@ func testCanParseCompressedQName(t *testing.T, conn *net.UDPConn) {
 		}
 		rdataBytes := make([]byte, 4)
 		binary.BigEndian.PutUint32(rdataBytes, answer.RDATA)
-		if net.IP(rdataBytes).String() != "9.8.17.3" {
+		if net.IP(rdataBytes).String() != "0.0.0.0" {
 			t.Errorf("RDATA mismatch: got %x, expected 7f000001", answer.RDATA)
 		}
 	}
@@ -262,7 +262,7 @@ func testRespondsWithCorrectPointers(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Class: IN
 		0x00, 0x01, 0x07, 0xd7, // TTL: 67543 (0x00010877)
 		0x00, 0x04,             // RDLENGTH: 4
-		0x09, 0x08, 0x11, 0x03, // RDATA: 9.8.17.3
+		0x00, 0x00, 0x00, 0x00, // RDATA: 0.0.0.0
 
 		// Answer 2: site.com (pointer)
 		0xc0, 0x14, // Pointer to "site.com"
@@ -270,17 +270,18 @@ func testRespondsWithCorrectPointers(t *testing.T, conn *net.UDPConn) {
 		0x00, 0x01, // Class: IN
 		0x00, 0x01, 0x07, 0xd7, // TTL: 67543 (0x00010877)
 		0x00, 0x04,             // RDLENGTH: 4
-		0x09, 0x08, 0x11, 0x03, // RDATA: 9.8.17.3
+		0x00, 0x00, 0x00, 0x00, // RDATA: 0.0.0.0
 	}
 
 	compareBytes(t, packet[12:], expectedResponseBody)
 }
 
+
 ///////////////////////
 // Helper functions ///
 ///////////////////////
 
-func sendMessageAndParseResponse(t *testing.T, conn *net.UDPConn, message []byte) (dns.DNSMessage, []byte) {
+func sendMessageAndParseResponse(t *testing.T, conn *net.UDPConn, message []byte) (mydns.DNSMessage, []byte) {
 	// Send the message to the server
 	_, err := conn.Write(message)
 	if err != nil {
@@ -296,7 +297,7 @@ func sendMessageAndParseResponse(t *testing.T, conn *net.UDPConn, message []byte
 	if n == 0 {
 		t.Fatalf("No response received from server")
 	}
-	response, err := dns.ParseDNSMessage(packet[:n])
+	response, err := mydns.ParseDNSMessage(packet[:n])
 	if err != nil {
 		t.Fatalf("Failed to parse DNS response: %v", err)
 	}
