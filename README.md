@@ -1,8 +1,8 @@
 # DNS Server
 
-# Go HTTP Server
+# Go DNS Server
 
-This is my implementation of a simple DNS server, built in Go, by following the [Codecrafters "Build Your Own DNS Server" challenge](https://app.codecrafters.io/courses/dns-server). The DNS server utilzes UDP connection for fast queries and responses that do not require a handshake like TCP does. My DNS server can take in messages and send reponses, and it also can connect and a send queries through to another DNS server.
+This is my implementation of a simple DNS server, built in Go, by following the [Codecrafters "Build Your Own DNS Server" challenge](https://app.codecrafters.io/courses/dns-server). The DNS server utilzes UDP connection for fast queries and responses that do not require a handshake as TCP does. My DNS server can take in messages and send reponses, and it also can forward queries through to another DNS server.
 
 ---
 
